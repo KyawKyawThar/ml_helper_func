@@ -14,7 +14,7 @@ def walk_through_directory(dir_path):
       number of images (files) in each subdirectory
       name of each subdirectory
 """
-    for dirnames,dirpath,filenames in os.walk(dir_path):
+    for dirpath,dirnames,filenames in os.walk(dir_path):
         print(f"There are {len(dirnames)} directories and {len(filenames)} images in '{dirpath}'.")
 
     
@@ -371,3 +371,5 @@ def calculate_results(y_true, y_pred):
         "recall": recall,
         "f1_score": f1
     }
+
+
