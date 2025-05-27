@@ -62,7 +62,7 @@ def plot_loss_curves(history):
     plt.figure(figsize=(12,5))
 
     ## plot loss
-    plt.subplots(1,2,1)
+    plt.subplot(1,2,1)
     plt.plot(epochs,training_loss,label="training_loss")
     plt.plot(epochs, val_loss, label="val_loss")
     plt.title('Loss Curve')
