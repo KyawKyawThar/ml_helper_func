@@ -373,3 +373,96 @@ def calculate_results(y_true, y_pred):
     }
 
 
+def compare_history(original_history,new_history,initial_epochs=5,figsize=(15,10)):
+    """
+    Compare model training histories side by side.
+    
+    Args:
+        original_history: History object from initial training
+        new_history: History object from fine-tuning
+        initial_epochs: Number of initial training epochs
+        figsize: Figure size tuple
+    """
+    # Extract original history
+    orig_acc = original_history.history.get("accuracy", [])
+    orig_loss = original_history.history.get("loss", [])
+    orig_val_acc = original_history.history.get("val_accuracy", [])
+    orig_val_loss = original_history.history.get("val_loss", [])
+
+    # Extract new history
+    new_acc = new_history.history.get("accuracy", [])
+    new_loss = new_history.history.get("loss", [])
+    new_val_acc = new_history.history.get("val_accuracy", [])
+    new_val_loss = new_history.history.get("val_loss", [])
+
+    # Create epochs arrays
+    orig_epochs = range(1, len(orig_acc) + 1)
+    new_epochs = range(initial_epochs + 1, initial_epochs + 1 + len(new_acc))
+
+    # Create side-by-side plots
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
+    fig.suptitle('Training History Comparison: Original vs Fine-tuned', fontsize=16)
+
+    # Original Training - Accuracy
+    axes[0, 0].plot(orig_epochs, orig_acc, 'b-', label='Training Accuracy', linewidth=2)
+    axes[0, 0].plot(orig_epochs, orig_val_acc, 'r-', label='Validation Accuracy', linewidth=2)
+    axes[0, 0].set_title('Original Training - Accuracy')
+    axes[0, 0].set_ylabel('Accuracy')
+    axes[0, 0].legend()
+    axes[0, 0].grid(True, alpha=0.3)
+    
+    # Fine-tuned Training - Accuracy
+    axes[0, 1].plot(new_epochs, new_acc, 'g-', label='Training Accuracy', linewidth=2)
+    axes[0, 1].plot(new_epochs, new_val_acc, 'orange', label='Validation Accuracy', linewidth=2)
+    axes[0, 1].set_title('Fine-tuned Training - Accuracy')
+    axes[0, 1].set_ylabel('Accuracy')
+    axes[0, 1].legend()
+    axes[0, 1].grid(True, alpha=0.3)
+    
+    # Original Training - Loss
+    axes[1, 0].plot(orig_epochs, orig_loss, 'b-', label='Training Loss', linewidth=2)
+    axes[1, 0].plot(orig_epochs, orig_val_loss, 'r-', label='Validation Loss', linewidth=2)
+    axes[1, 0].set_title('Original Training - Loss')
+    axes[1, 0].set_xlabel('Epoch')
+    axes[1, 0].set_ylabel('Loss')
+    axes[1, 0].legend()
+    axes[1, 0].grid(True, alpha=0.3)
+    
+    # Fine-tuned Training - Loss
+    axes[1, 1].plot(new_epochs, new_loss, 'g-', label='Training Loss', linewidth=2)
+    axes[1, 1].plot(new_epochs, new_val_loss, 'orange', label='Validation Loss', linewidth=2)
+    axes[1, 1].set_title('Fine-tuned Training - Loss')
+    axes[1, 1].set_xlabel('Epoch')
+    axes[1, 1].set_ylabel('Loss')
+    axes[1, 1].legend()
+    axes[1, 1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.show()
+    
+    # Print summary statistics
+    print("="*60)
+    print("TRAINING SUMMARY")
+    print("="*60)
+    
+    print(f"Original Training:")
+    print(f"  • Epochs: {len(orig_acc)}")
+    print(f"  • Final Training Accuracy: {orig_acc[-1]:.4f}")
+    print(f"  • Final Validation Accuracy: {orig_val_acc[-1]:.4f}")
+    print(f"  • Final Training Loss: {orig_loss[-1]:.4f}")
+    print(f"  • Final Validation Loss: {orig_val_loss[-1]:.4f}")
+    
+    print(f"\nFine-tuning:")
+    print(f"  • Epochs: {len(new_acc)}")
+    print(f"  • Final Training Accuracy: {new_acc[-1]:.4f}")
+    print(f"  • Final Validation Accuracy: {new_val_acc[-1]:.4f}")
+    print(f"  • Final Training Loss: {new_loss[-1]:.4f}")
+    print(f"  • Final Validation Loss: {new_val_loss[-1]:.4f}")
+    
+    # Calculate improvements
+    acc_improvement = new_val_acc[-1] - orig_val_acc[-1]
+    loss_improvement = orig_val_loss[-1] - new_val_loss[-1]
+    print(f"\nImprovement from Fine-tuning:")
+    print(f"  • Validation Accuracy: {acc_improvement:+.4f}")
+    print(f"  • Validation Loss: {loss_improvement:+.4f}")
+    print("="*60)
