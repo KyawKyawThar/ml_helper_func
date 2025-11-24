@@ -145,67 +145,118 @@ def create_tensorboard_callback(dir_name, experiment_name):
 import tensorflow as tf
 import tensorflow_hub as hub
 from tensorflow.keras import layers
+from tensorflow.keras import Sequential
 
-# Constants
-# ==============================================
-# 1. Define the Custom FeatureExtractor Layer
-# ==============================================
-class FeatureExtractor(tf.keras.layers.Layer):
-    """
-    Custom layer to extract features from an input tensor.
-    
-    Standalone reusable layer for TF Hub feature extraction.
-    """
-    def __init__(self,model_url,image_shape,trainable=False,**kwargs):
-        super().__init__(**kwargs)
-        self.model_url = model_url
-        self.trainable = trainable
-        self.image_shape = image_shape
 
-    # Load the TF Hub module
-        self.feature_extractor = hub.KerasLayer(model_url,
-                                            trainable=trainable,
-                                            input_shape = image_shape + (3,))
-    def call(self, inputs):
-        """Normalize inputs and extract features."""
-        # Convert to float32 and scale to [0,1]
-        x = tf.cast(inputs, tf.float32) / 255.0  
-        return self.feature_extractor(x)
-    
-    def get_config(self):
-        """For model serialization."""
-        config = super().get_config()
-        config.update({"model_url": self.model_url, "trainable": self.trainable})
-        return config
+data_augmention=Sequential([
+    layers.RandomFlip("horizontal"),
+    layers.RandomRotation(0.2),
+    layers.RandomZoom(0.2),
+    layers.RandomHeight(0.2),
+    layers.RandomWidth(0.2)
+], name="data_augmentation")
 
 # ==============================================
-# 2. Model Creation Function
+# 1. Model Creation Function
 # ==============================================
 
-def create_model(model_url,image_shape, num_classes=10):
+def create_model(base_model,image_shape, num_classes=10):
     """
     Creates a model with a custom FeatureExtractor layer.
     
+    You shouldn't always use 1./255 (which scales data to [0, 1]) because different pre-trained models were trained on different data ranges.
+    If you feed a model data in the range [0, 1] when it expects [-1, 1], the model's mathematical weights will react incorrectly, 
+    and your accuracy will likely drop significantly (or the model won't learn at all).
+
+    When researchers train models (like Google with EfficientNet or Microsoft with ResNet),
+    they pick a specific way to "normalize" images before training. You must match that choice exactly.
+
+     Range	     Formula	                       Common Models
+     [0, 1]	 x / 255	                       Many custom models, TF Hub models, DenseNet.
+     [-1, 1]	(x - 127.5) / 127.5	               ResNetV2, MobileNetV2, InceptionV3, Xception.
+     Unscaled  [0, 255]No scaling (Raw pixels)	   EfficientNetV2, EfficientNet (B0-B7).
+     Caffe Style	x - Mean_RGB (keep 0-255)	   VGG16, ResNet50 (V1).
+
+     Why EfficientNetV2 is special
+     EfficientNetV2 (and V1) was designed to be user-friendly. The Google team included a Rescaling layer inside the model architecture itself.
+     If you do: inputs / 255.0 -> Model internal scaling inputs / 255.0 -> Result: You divided by 255 twice. Your pixel values become tiny (e.g., 0.00001), and the model sees "black" images.
+     Correct way: Pass raw [0, 255] data. The model handles the math internally.
+
+    Why ResNetV2 and MobileNet use [-1, 1]
+    Mathematical "centering" helps models train faster.
+    [0, 1] means all inputs are positive.
+    [-1, 1] means the average input is roughly 0.
+    Neural networks generally converge faster and more stably when the input data is centered around zero. Since ResNetV2 expects inputs between -1 and 1:
+    If you give it [0, 1], you are only using the positive half of the range it expects.
+    The pre-trained weights (which are fixed) will fire activations that are weaker than they should be.
+
+    How to calculate the [-1, 1] formula?
+    If you want to convert [0, 255] to [-1, 1], you cannot just divide.
+    Step 1: x / 127.5 
+    Range becomes [0, 2]
+    Step 2: Subtract 1 
+    Range becomes [-1, 1]
+    Equivalent to (x - 127.5) / 127.5
+    layers.Rescaling(scale=1./127.5, offset=-1)
+    
+   Summary Checklist
+   When using tf.keras.applications:
+   EfficientNetV2: Do NOT scale. Input [0, 255].
+   ResNetV2 / MobileNetV2: Scale to [-1, 1].
+   VGG16: Use tf.keras.applications.vgg16.preprocess_input.
+   TF Hub Models (URL strings): Usually scale to [0, 1]
     Args:
-        model_url (str): TF Hub model URL
+        base_model (model_object): TF Hub model URL
         num_classes (int): Number of output classes
     
     Returns:
         tf.keras.Model: Compiled model
     """
-    # Input layer
+    # 1. Input layer
     inputs = tf.keras.Input(shape=image_shape + (3,))
+
+    # 2. Augmentation (operates on [0-255] range)
+    X = data_augmention(inputs)
     
-    # Feature extraction
-    features = FeatureExtractor(model_url,image_shape, trainable=False)(inputs)
+    # 3. Dynamic Preprocessing Logic
+    # We check the name of the model object to decide how to scale.
+    model_name = base_model.name.lower()
+  
+    if "efficientnet" in model_name:
+        # EfficientNet models expect inputs in the range [0, 255]
+        print(f"Model: {base_model.name} -> Skipping external Rescaling (uses [0, 255]).")
+        pass
+    elif "resnet" in model_name and "v2" in model_name:
+         # ResNetV2 expects inputs in range [-1, 1].
+         # We convert from [0, 255] to [-1, 1].
+         print(f"Model: {base_model.name} -> Adding Rescaling [-1, 1].")
+         X = layers.Rescaling(1./127.5, offset=-1)(X)
+    elif "mobilenet" in model_name:
+         # MobileNetV2 usually expects [-1, 1]
+         print(f"Model: {base_model.name} -> Adding Rescaling [-1, 1].")
+         X = layers.Rescaling(1./127.5, offset=-1)(x)
+    else:
+        # Fallback: Standard Rescaling [0, 1] for VGG16, DenseNet, etc.
+        print(f"Model: {base_model.name} -> Defaulting to Rescaling [0, 1].")
+        X = layers.Rescaling(1./255.0)(X)
+
+    # 4. Feature Extraction
+    # Set training=False to keep BatchNormalization layers in inference mode
+    # even if we unfreeze weights later.
+
+    X = base_model(X,training=False)
     
+    # 5. Pooling (REQUIRED for include_top=False)
+    # Converts 4D tensor (batch, h, w, c) -> 2D tensor (batch, c)
+    X = layers.GlobalAveragePooling2D()(X)
+
     # Classification head
-    outputs = layers.Dense(num_classes, activation='softmax')(features)
+    outputs = layers.Dense(num_classes, activation='softmax')(X)
     
     # Build model
-    model = tf.keras.Model(inputs=inputs, outputs=outputs)
+    return tf.keras.Model(inputs=inputs, outputs=outputs)
     
-    return model
+   
 
 from sklearn.metrics import confusion_matrix
 import itertools
