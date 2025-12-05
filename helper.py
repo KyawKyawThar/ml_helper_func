@@ -263,78 +263,107 @@ import itertools
 import matplotlib.pyplot as plt
 import numpy as np
 
-def make_confusion_matrix(y_true, y_pred, classes=None, figsize=(10, 10), text_size=15, norm=False, savefig=False): 
-    """Makes a labelled confusion matrix comparing predictions and ground truth labels.
+import itertools
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix
+from typing import Optional, List, Tuple, Union
 
-  If classes is passed, confusion matrix will be labelled, if not, integer class values
-  will be used.
+def make_confusion_matrix(
+    y_true: np.ndarray, 
+    y_pred: np.ndarray, 
+    classes: Optional[Union[List[str], np.ndarray]] = None, 
+    figsize: Tuple[int, int] = (10, 10), 
+    text_size: int = 15, 
+    norm: bool = False, 
+    save_path: Optional[str] = None
+) -> Tuple[plt.Figure, plt.Axes]: 
+    """
+    Generates a labelled confusion matrix plot comparing predictions and ground truth.
 
-  Args:
-    y_true: Array of truth labels (must be same shape as y_pred).
-    y_pred: Array of predicted labels (must be same shape as y_true).
-    classes: Array of class labels (e.g. string form). If `None`, integer labels are used.
-    figsize: Size of output figure (default=(10, 10)).
-    text_size: Size of output figure text (default=15).
-    norm: normalize values or not (default=False).
-    savefig: save confusion matrix to file (default=False).
-  
-  Returns:
-    A labelled confusion matrix plot comparing y_true and y_pred.
+    Args:
+        y_true (np.ndarray): Array of truth labels.
+        y_pred (np.ndarray): Array of predicted labels.
+        classes (List[str] or np.ndarray): List of class names. If provided, ensures matrix shape matches.
+        figsize (Tuple[int, int]): Size of output figure (width, height).
+        text_size (int): Font size for the text inside the matrix cells.
+        norm (bool): If True, normalizes the matrix to show percentages (0 to 1).
+        save_path (str, optional): Path to save the figure (e.g., "plots/cm.png").
 
-  Example usage:
-    make_confusion_matrix(y_true=test_labels, # ground truth test labels
-                          y_pred=y_preds, # predicted labels
-                          classes=class_names, # array of class label names
-                          figsize=(15, 15),
-                          text_size=10)
-  """  
-    # Create the confustion matrix
-    cm = confusion_matrix(y_true, y_pred)
-    # Normalize the confusion matrix if norm is True
+    Returns:
+        Tuple[plt.Figure, plt.Axes]: The figure and axis objects.
+    """
+
+    # 1. Generate the Confusion Matrix
+    # We pass 'labels' to confusion_matrix to ensure the matrix size matches 
+    # the list of classes, even if some classes are missing in the data.
+    # Note: If classes are strings, we assume y_true/y_pred are also strings or mapped correctly.
+    # If y_true/y_pred are integers, 'labels' should be integers (range(len(classes))).
+    
+    calc_labels = None
+    if classes is not None:
+        # Assuming y_true/y_pred are indices (0, 1, 2...) matching the 'classes' list order
+        calc_labels = np.arange(len(classes))
+        
+    cm = confusion_matrix(y_true, y_pred, labels=calc_labels)
+    
+    # 2. Normalize if requested
     if norm:
-        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
-    n_classes = cm.shape[0] # find the number of classes we're dealing with
+        # Add epsilon to avoid division by zero if a class has 0 samples
+        cm = cm.astype('float') / (cm.sum(axis=1)[:, np.newaxis] + 1e-9)
+        fmt = ".2f" # Float format
+    else:
+        fmt = "d"   # Integer format
 
-    # Plot the figure and make it pretty
+    # 3. Plotting Setup
     fig, ax = plt.subplots(figsize=figsize)
-    cax = ax.matshow(cm, cmap=plt.cm.Blues) # colors will represent how 'correct' a class is, darker == better
+    cax = ax.matshow(cm, cmap=plt.cm.Blues) 
     fig.colorbar(cax)
-   
 
-    # Are there a list of classes?
-    if classes:
+    # 4. Axis Labeling
+    if classes is not None:
         labels = classes
     else:
         labels = np.arange(cm.shape[0])
-     # Label the axes
-    ax.set(title="Confusion Matrix",
-            xlabel="Predicted label",
-            ylabel="True label",
-            xticks=np.arange(n_classes), # create enough axis slots for each class
-            yticks=np.arange(n_classes), 
-            xticklabels=labels, # axes will labeled with class names (if they exist) or ints
-            yticklabels=labels)
-   # Make x-axis labels appear on bottom
+
+    ax.set_title("Confusion Matrix", fontsize=text_size + 2, pad=20)
+    ax.set_xlabel("Predicted Label", fontsize=text_size)
+    ax.set_ylabel("True Label", fontsize=text_size)
+
+    # Configure Ticks
+    ax.set_xticks(np.arange(len(labels)))
+    ax.set_yticks(np.arange(len(labels)))
+    
+    ax.set_xticklabels(labels, rotation=45, ha="right", rotation_mode="anchor") 
+    ax.set_yticklabels(labels)
+
+    # Move x-axis labels to bottom
     ax.xaxis.set_label_position("bottom")
     ax.xaxis.tick_bottom()
-    # Set the threshold for different colors
+
+    # 5. Text Annotation (The Numbers inside the boxes)
     threshold = (cm.max() + cm.min()) / 2.
 
-    # Plot the text on each cell
     for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
-        if norm:
-            plt.text(j, i, f"{cm[i, j]}",  # cm_norm is not defined, so just show cm[i, j]
-                     horizontalalignment="center",
-                     color="white" if cm[i, j] > threshold else "black",
-                     size=text_size)
-        else:
-            plt.text(j, i, f"{cm[i, j]}",
-                     horizontalalignment="center",
-                     color="white" if cm[i, j] > threshold else "black",
-                     size=text_size)
-    # Save the figure to the current working directory
-    if savefig:
-        fig.savefig("confusion_matrix.png")
+        val = cm[i, j]
+        
+        # Select color for visibility (white text on dark blue, black on light)
+        color = "white" if val > threshold else "black"
+        
+        ax.text(j, i, format(val, fmt),
+                horizontalalignment="center",
+                verticalalignment="center", # Center vertically too
+                color=color,
+                size=text_size)
+
+    plt.tight_layout()
+
+    # 6. Saving
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Confusion matrix saved to {save_path}")
+
+    return fig, ax
 
 def compare_historys(original_history, new_history, initial_epochs=5):
     """
@@ -517,3 +546,84 @@ def compare_history(original_history,new_history,initial_epochs=5,figsize=(15,10
     print(f"  • Validation Accuracy: {acc_improvement:+.4f}")
     print(f"  • Validation Loss: {loss_improvement:+.4f}")
     print("="*60)
+
+
+def plot_metric_scores(
+    df: pd.DataFrame, 
+    class_col: str, 
+    score_col: str, 
+    title: str = "Class Performance",
+    xlabel: str = "Score",
+    figsize: Tuple[int, int] = (12, 10),
+    color: str = "#1f77b4",
+    save_path: Optional[str] = None
+) -> Tuple[plt.Figure, plt.Axes]:
+    """
+    Generates a horizontal bar chart for classification metrics (e.g., F1-score).
+
+    Args:
+        df (pd.DataFrame): The dataframe containing the data.
+        class_col (str): The column name for class labels (y-axis).
+        score_col (str): The column name for metric scores (x-axis).
+        title (str): The title of the chart.
+        xlabel (str): The label for the x-axis.
+        figsize (Tuple[int, int]): Size of the figure (width, height).
+        color (str): Hex code or name for the bar color.
+        save_path (str, optional): If provided, saves the plot to this file path.
+
+    Returns:
+        Tuple[plt.Figure, plt.Axes]: The figure and axis objects for further customization.
+    """
+    
+    # Create figure and axes
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Plot the horizontal bars
+    # We use list() to ensure compatibility if data is a numpy array or series
+    y_pos = range(len(df))
+    bars = ax.barh(y_pos, df[score_col], color=color, align='center')
+
+    # Configure ticks and labels
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(df[class_col])
+    ax.set_xlabel(xlabel)
+    ax.set_title(title, fontsize=14, fontweight='bold')
+    
+    # Invert y-axis to have the first entry at the top
+    ax.invert_yaxis() 
+
+    # --- Autolabel Logic ---
+    # Determine a dynamic offset for the text based on the max score
+    x_offset = df[score_col].max() * 0.01 
+
+    for rect in bars:
+        width = rect.get_width()
+        
+        # Determine label position (slightly to the right of the bar)
+        label_x_pos = width + x_offset
+        
+        ax.text(
+            label_x_pos, 
+            rect.get_y() + rect.get_height() / 2, # Center vertically
+            f"{width:.2f}", 
+            ha='left',    # Horizontal alignment
+            va='center',  # Vertical alignment
+            fontsize=10,
+            color='black'
+        )
+
+    # Adjust x-axis limits to make room for labels on the right
+    ax.set_xlim(right=df[score_col].max() * 1.1)
+    
+    # Remove top and right spines for a cleaner look
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    plt.tight_layout()
+
+    # Save logic
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight', dpi=300)
+        print(f"Plot saved to {save_path}")
+
+    return fig, ax
